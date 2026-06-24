@@ -2,6 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\AuditReport;
+use App\Models\Employee;
+use App\Models\Payslip;
+
 class PayrollVerificationService
 {
     public function verify(array $p): array
@@ -10,20 +14,40 @@ class PayrollVerificationService
         $deductions = $this->sum($p, ['pf', 'esi', 'tds', 'other_deductions']);
         $gross = (float) ($p['gross_salary'] ?? 0);
         $net = (float) ($p['net_salary'] ?? 0);
+        
         $basic = (float) ($p['basic_salary'] ?? 0);
-        $expectedPf = round($basic * config('payroll.pf_rate'), 2);
-        $expectedEsi = $gross <= config('payroll.esi_wage_limit') ? round($gross * config('payroll.esi_employee_rate'), 2) : 0;
+        
+        // EPF Statutory Limit Compliance: Cap standard expected PF calculation at ₹15,000 basic salary
+        $pfBase = min($basic, 15000.0);
+        $expectedPf = round($pfBase * config('payroll.pf_rate', 0.12), 2);
+        
+        // Voluntary uncapped expected PF for validation allowance
+        $expectedPfUncapped = round($basic * config('payroll.pf_rate', 0.12), 2);
+        
+        $expectedEsi = $gross <= config('payroll.esi_wage_limit', 21000) 
+            ? round($gross * config('payroll.esi_employee_rate', 0.0075), 2) 
+            : 0;
 
         $warnings = [];
         if (abs($earnings - $gross) > 1) {
             $warnings[] = "Gross salary mismatch: expected {$earnings}, found {$gross}.";
         }
         if (abs(($gross - $deductions) - $net) > 1) {
-            $warnings[] = "Net salary mismatch: expected ".($gross - $deductions).", found {$net}.";
+            $warnings[] = "Net salary mismatch: expected " . ($gross - $deductions) . ", found {$net}.";
         }
-        if (abs(((float) ($p['pf'] ?? 0)) - $expectedPf) > max(100, $expectedPf * 0.05)) {
+        
+        // Accept either capped EPF contribution OR voluntary uncapped contribution
+        $declaredPf = (float) ($p['pf'] ?? 0);
+        $diffCapped = abs($declaredPf - $expectedPf);
+        $diffUncapped = abs($declaredPf - $expectedPfUncapped);
+        
+        $toleranceCapped = max(100.0, $expectedPf * 0.05);
+        $toleranceUncapped = max(100.0, $expectedPfUncapped * 0.05);
+
+        if ($diffCapped > $toleranceCapped && $diffUncapped > $toleranceUncapped) {
             $warnings[] = "PF differs from expected value {$expectedPf}.";
         }
+        
         if (abs(((float) ($p['esi'] ?? 0)) - $expectedEsi) > 50) {
             $warnings[] = "ESI differs from expected value {$expectedEsi}.";
         }
@@ -76,4 +100,3 @@ class PayrollVerificationService
         return array_reduce($keys, fn ($sum, $key) => $sum + (float) ($payroll[$key] ?? 0), 0.0);
     }
 }
-

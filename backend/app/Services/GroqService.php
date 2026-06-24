@@ -19,18 +19,37 @@ class GroqService
                 ->timeout(30)
                 ->retry(2, 250)
                 ->post('https://api.groq.com/openai/v1/chat/completions', [
-                    'model' => config('payroll.groq_model'),
-                    'temperature' => 0.2,
+                    'model' => config('payroll.groq_model', 'llama-3.3-70b-versatile'),
+                    'temperature' => 0.1,
                     'response_format' => ['type' => 'json_object'],
                     'messages' => [
                         [
                             'role' => 'system',
-                            'content' => 'You are a professional payroll auditor. Your task is to audit the payslip. You MUST look for errors, inconsistencies, or compliance issues (such as PF/TDS anomalies, arithmetic mismatches, or missing statutory elements). In India, Provident Fund (PF) is legally calculated as 12% of (Basic Salary + Dearness Allowance). If Dearness Allowance (DA) is paid but PF is only 12% of Basic, flag this as a compliance issue. Be strict and identify any potential issues or concerns. Return only valid JSON with keys summary, deduction_explanation, anomalies, issues, recommendations, risk_indicators.',
+                            'content' => 'You are an expert forensic payroll auditor specializing in Indian statutory compliance and mathematical verification.
+Perform a step-by-step calculation check on the uploaded payslip details.
+
+When auditing, you MUST evaluate these critical areas:
+1. LAYOUT DISTORTION: OCR engines frequently flatten two-column tables (Earnings on the left, Deductions on the right) horizontally into a single line. This can mix up values (e.g. Basic Salary: 50000 PF: 1800). Cross-verify values before reporting anomalies.
+2. INDIAN EPF COMPLIANCE CEILING: The standard mandatory Employee Provident Fund (EPF) contribution ceiling is capped at a wage threshold of ₹15,000 per month, which limits the standard mandatory contribution to ₹1,800 per month (12% of ₹15,000). Contributions exceeding ₹1,800 are voluntary and fully compliant. DO NOT flag contributions as non-compliant or mismatch errors if they are capped at ₹1,800 or match 12% of the actual basic salary.
+3. ARITHMETIC AUDIT:
+   - Verify: Gross Salary = Basic + HRA + Allowances + Bonus + Overtime.
+   - Verify: Net Salary = Gross Salary - Total Deductions.
+4. ESI & TDS VALIDATION: Ensure ESI contributions are only expected if gross salary is <= ₹21,000. Verify TDS ranges look reasonable.
+
+Return ONLY a valid JSON object matching the following structure:
+{
+  "summary": "High level audit verdict summary.",
+  "deduction_explanation": "Breakdown/explanation of deductions.",
+  "anomalies": ["List of calculations/statutory mismatch statements."],
+  "issues": ["List of compliance, missing info, or formatting issues."],
+  "recommendations": ["Actionable compliance recommendations."],
+  "risk_indicators": ["Key risk identifiers found."]
+}',
                         ],
                         [
                             'role' => 'user',
                             'content' => json_encode([
-                                'task' => 'Audit the payslip. Double-check all arithmetic. Find any non-compliance or calculations that look suspicious. Explain deductions simply, list issues/anomalies, and provide actionable recommendations.',
+                                'task' => 'Audit this payslip data and raw text. Cross-check math, statutory limits, and layout distortions. Return compliance verdict in JSON.',
                                 'parsed_payroll_fields' => $payroll,
                                 'rule_verification' => $verification,
                                 'raw_ocr_text' => $rawText,

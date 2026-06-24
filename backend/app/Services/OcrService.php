@@ -13,20 +13,36 @@ class OcrService
             throw new \RuntimeException('Payslip file is missing from storage.');
         }
 
-        $rawText = match (config('payroll.ocr_driver')) {
-            'tesseract' => $this->extractWithTesseract($path),
-            'ocrspace' => $this->extractWithOcrSpace($path),
-            default => $this->mockText(),
-        };
+        $rawText = '';
 
-        if ($mimeType === 'application/pdf' && config('payroll.ocr_driver') !== 'ocrspace') {
-            $pdfText = $this->extractPdfText($path);
-            $rawText = trim($pdfText) !== '' ? $pdfText : $rawText;
+        // 1. Priority: If PDF, execute native text parsing first
+        if ($mimeType === 'application/pdf') {
+            $rawText = $this->extractPdfText($path);
+        }
+
+        // 2. Fall back to external OCR engines ONLY if native parser yields empty or whitespace-only results, or if image
+        if (trim($rawText) === '') {
+            $rawText = match (config('payroll.ocr_driver')) {
+                'tesseract' => $this->extractWithTesseract($path),
+                'ocrspace' => $this->extractWithOcrSpace($path),
+                default => $this->mockText(),
+            };
+        }
+
+        // 3. Parse extracted data using strict regex rules
+        $data = $this->parsePayrollText($rawText);
+
+        // 4. Ultimate AI Fallback: If local extraction yielded 0 gross/net, use Groq Vision/Text parser
+        if (empty($rawText) || (float)($data['gross_salary'] ?? 0) <= 0 || (float)($data['net_salary'] ?? 0) <= 0) {
+            $groqResult = $this->extractWithGroq($path, $mimeType, $rawText);
+            if (!empty($groqResult)) {
+                return $groqResult;
+            }
         }
 
         return [
-            'raw_text' => $rawText,
-            'data' => $this->parsePayrollText($rawText),
+            'raw_text' => $rawText ?: 'Extracted using local OCR.',
+            'data' => $data,
         ];
     }
 
@@ -42,7 +58,7 @@ class OcrService
     private function extractWithTesseract(string $path): string
     {
         try {
-            $binary = escapeshellcmd(config('payroll.tesseract_binary'));
+            $binary = escapeshellcmd(config('payroll.tesseract_binary', 'tesseract'));
             $escapedPath = escapeshellarg($path);
             return shell_exec("$binary $escapedPath stdout 2>/dev/null") ?: '';
         } catch (\Throwable) {
@@ -71,12 +87,128 @@ class OcrService
         return data_get($response->json(), 'ParsedResults.0.ParsedText', '');
     }
 
+    private function extractWithGroq(string $path, string $mimeType, string $existingRawText): array
+    {
+        $apiKey = config('payroll.groq_api_key') ?: env('GROQ_API_KEY');
+        if (!$apiKey) {
+            return [];
+        }
+
+        if (trim($existingRawText) !== '') {
+            try {
+                $response = Http::withToken($apiKey)
+                    ->acceptJson()
+                    ->asJson()
+                    ->timeout(30)
+                    ->post('https://api.groq.com/openai/v1/chat/completions', [
+                        'model' => 'llama-3.3-70b-versatile',
+                        'temperature' => 0.1,
+                        'response_format' => ['type' => 'json_object'],
+                        'messages' => [
+                            [
+                                'role' => 'system',
+                                'content' => 'You are a payroll details parser. Extract employee and salary breakdown fields from the provided raw payslip text. Return a JSON object matching this schema exactly: {"employee_name": string|null, "employee_id": string|null, "month": string|null, "basic_salary": number, "hra": number, "allowances": number, "bonus": number, "overtime": number, "pf": number, "esi": number, "tds": number, "other_deductions": number, "gross_salary": number, "net_salary": number, "working_days": number, "paid_days": number}. Ensure all number fields are numeric, not strings.',
+                            ],
+                            [
+                                'role' => 'user',
+                                'content' => $existingRawText,
+                            ],
+                        ],
+                    ]);
+
+                if ($response->successful()) {
+                    $content = data_get($response->json(), 'choices.0.message.content', '{}');
+                    $data = json_decode($content, true);
+                    if (is_array($data) && (float)($data['gross_salary'] ?? 0) > 0) {
+                        return [
+                            'raw_text' => $existingRawText,
+                            'data' => $this->sanitizeExtractedData($data),
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Groq Text Parse Fallback Failed: ' . $e->getMessage());
+            }
+        }
+
+        if (str_starts_with($mimeType, 'image/')) {
+            try {
+                $base64 = base64_encode(file_get_contents($path));
+                $response = Http::withToken($apiKey)
+                    ->acceptJson()
+                    ->asJson()
+                    ->timeout(30)
+                    ->post('https://api.groq.com/openai/v1/chat/completions', [
+                        'model' => 'llama-3.2-11b-vision-preview',
+                        'temperature' => 0.1,
+                        'response_format' => ['type' => 'json_object'],
+                        'messages' => [
+                            [
+                                'role' => 'system',
+                                'content' => 'You are a payroll details parser. Extract employee and salary breakdown fields from the provided payslip image. Return a JSON object matching this schema exactly: {"employee_name": string|null, "employee_id": string|null, "month": string|null, "basic_salary": number, "hra": number, "allowances": number, "bonus": number, "overtime": number, "pf": number, "esi": number, "tds": number, "other_deductions": number, "gross_salary": number, "net_salary": number, "working_days": number, "paid_days": number}. Ensure all number fields are numeric, not strings.',
+                            ],
+                            [
+                                'role' => 'user',
+                                'content' => [
+                                    [
+                                        'type' => 'text',
+                                        'text' => 'Extract all values from this payslip image.',
+                                    ],
+                                    [
+                                        'type' => 'image_url',
+                                        'image_url' => [
+                                            'url' => 'data:' . $mimeType . ';base64,' . $base64,
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]);
+
+                if ($response->successful()) {
+                    $content = data_get($response->json(), 'choices.0.message.content', '{}');
+                    $data = json_decode($content, true);
+                    if (is_array($data)) {
+                        return [
+                            'raw_text' => 'Extracted via Groq Vision API.',
+                            'data' => $this->sanitizeExtractedData($data),
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Groq Vision Fallback Failed: ' . $e->getMessage());
+            }
+        }
+
+        return [];
+    }
+
+    private function sanitizeExtractedData(array $data): array
+    {
+        $fields = [
+            'employee_name', 'employee_id', 'month', 'basic_salary', 'hra', 
+            'allowances', 'bonus', 'overtime', 'pf', 'esi', 'tds', 
+            'other_deductions', 'gross_salary', 'net_salary', 'working_days', 'paid_days'
+        ];
+        
+        $sanitized = [];
+        foreach ($fields as $field) {
+            if (in_array($field, ['employee_name', 'employee_id', 'month'])) {
+                $sanitized[$field] = isset($data[$field]) ? (string)$data[$field] : null;
+            } else {
+                $sanitized[$field] = isset($data[$field]) ? (float)$data[$field] : 0.0;
+            }
+        }
+        return $sanitized;
+    }
+
     private function parsePayrollText(string $text): array
     {
-        // Clean OCR noise/symbols (like parenthetical rupee signs scanned as (2) or (®), pipes, etc.)
+        // 1. Clean OCR noise, symbols, copyright markers, and common formatting artifacts
         $text = preg_replace('/\([a-zA-Z0-9®₹?§\s]\)/u', ' ', $text);
-        $text = preg_replace('/[|©]/', ' ', $text);
+        $text = preg_replace('/[|©]/u', ' ', $text);
 
+        // 2. Extractions using strictly bounded horizontal layout patterns
         $da = $this->money($text, 'DA|Dearness Allowance');
         $transport = $this->money($text, 'Transport Allowance');
         $special = $this->money($text, 'Special Allowance');
@@ -118,12 +250,16 @@ class OcrService
 
     private function money(string $text, string $label): float
     {
-        return (float) str_replace(',', '', $this->matchText($text, '/(?:'.$label.')[^\r\n]*?([0-9,]+(?:\.[0-9]{1,2})?)/i') ?: 0);
+        // strictly bounded regex pattern to prevent search leakage into adjacent column text
+        $pattern = '/(?:' . $label . ')[:\s\-\.₹$]*\b(?:Rs\.?|INR)?[:\s\-\.₹$]*([0-9,]+(?:\.[0-9]{1,2})?)\b/i';
+        $matched = $this->matchText($text, $pattern);
+        return (float) str_replace(',', '', $matched ?: 0);
     }
 
     private function number(string $text, string $label): float
     {
-        return (float) ($this->matchText($text, '/(?:'.$label.')[^\r\n]*?([0-9.]+)/i') ?: 0);
+        $pattern = '/(?:' . $label . ')[:\s\-\.₹$]*\b([0-9.]+)\b/i';
+        return (float) ($this->matchText($text, $pattern) ?: 0);
     }
 
     private function matchText(string $text, string $pattern): ?string
@@ -133,23 +269,6 @@ class OcrService
 
     private function mockText(): string
     {
-        return <<<TEXT
-Employee Name: Priya Sharma
-Employee ID: EMP-1001
-Month: 2026-05
-Basic Salary: 50000
-HRA: 20000
-Allowances: 12000
-Bonus: 5000
-Overtime: 3000
-PF: 6000
-ESI: 0
-TDS: 7000
-Other Deductions: 1000
-Gross Salary: 90000
-Net Salary: 76000
-Working Days: 22
-Paid Days: 22
-TEXT;
+        return "Employee Name: Priya Sharma\nEmployee ID: EMP-1001\nMonth: 2026-05\nBasic Salary: 50000\nHRA: 20000\nAllowances: 12000\nBonus: 5000\nOvertime: 3000\nPF: 6000\nESI: 0\nTDS: 7000\nOther Deductions: 1000\nGross Salary: 90000\nNet Salary: 76000\nWorking Days: 22\nPaid Days: 22";
     }
 }
