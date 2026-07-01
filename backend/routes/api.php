@@ -8,6 +8,34 @@ use App\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
+Route::get('/debug-info', function () {
+    try {
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $dbStatus = 'Connected successfully';
+        $tables = \Illuminate\Support\Facades\DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
+        $tablesList = array_map(fn($t) => $t->table_name, $tables);
+    } catch (\Exception $e) {
+        $dbStatus = 'Database Error: ' . $e->getMessage();
+        $tablesList = [];
+    }
+
+    $logFile = storage_path('logs/laravel.log');
+    $logContent = 'No log file found.';
+    if (file_exists($logFile)) {
+        $logContent = file_get_contents($logFile);
+        $lines = explode("\n", $logContent);
+        $lastLines = array_slice($lines, -100);
+        $logContent = implode("\n", $lastLines);
+    }
+
+    return response()->json([
+        'db_status' => $dbStatus,
+        'tables' => $tablesList,
+        'app_key_exists' => !empty(config('app.key')),
+        'jwt_secret_exists' => !empty(env('JWT_SECRET')),
+        'last_logs' => $logContent
+    ]);
+});
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 
