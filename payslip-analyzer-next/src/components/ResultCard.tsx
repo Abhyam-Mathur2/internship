@@ -4,7 +4,7 @@
 import React from 'react';
 import { PayslipAnalysis } from '../types/payslip';
 import { VerdictBadge } from './VerdictBadge';
-import { RefreshCw, AlertTriangle, AlertCircle, Sparkles, Building, User, Calendar } from 'lucide-react';
+import { RefreshCw, AlertTriangle, AlertCircle, Sparkles, Building, User, Calendar, TrendingUp, PiggyBank, Scale } from 'lucide-react';
 
 interface ResultCardProps {
   report: PayslipAnalysis;
@@ -147,6 +147,98 @@ export function ResultCard({ report, onReset }: ResultCardProps) {
           </div>
         </div>
       </div>
+
+      {/* Annual Projections & Tax Advisory Section */}
+      {report.projections && (
+        <div className="rounded-2xl bg-white border border-slate-100 p-6 shadow-md dark:bg-slate-900 dark:border-slate-800 space-y-6">
+          <div className="flex items-center gap-2.5 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <TrendingUp className="h-6 w-6 text-indigo-500" />
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Annual Projections & Tax Advisory</h3>
+              <p className="text-xs text-slate-400">AI-projected CTC, tax optimizations, and long-term EPF wealth accumulation</p>
+            </div>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* Salary Projections Card */}
+            <div className="rounded-xl bg-slate-50/50 p-5 dark:bg-slate-950/20 border border-slate-100/20 space-y-4">
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-indigo-400" />
+                Annual Forecast
+              </h4>
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">Projected CTC</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{formatMoney(report.projections.annualGrossSalary)}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">Take Home (Annual)</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatMoney(report.projections.annualNetSalary)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Tax Regime Advisory Card */}
+            <div className="rounded-xl bg-slate-50/50 p-5 dark:bg-slate-950/20 border border-slate-100/20 space-y-4">
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <Scale className="h-4 w-4 text-indigo-400" />
+                Tax Slabs (Est. Slabs)
+              </h4>
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">New Regime Tax</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{formatMoney(report.projections.newRegimeTax)}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">Old Regime Tax</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{formatMoney(report.projections.oldRegimeTax)}</span>
+                </div>
+                <div className="border-t border-slate-100/20 my-1 pt-1.5 flex justify-between items-center text-xs">
+                  <span className="text-indigo-400 font-semibold">Recommended</span>
+                  <span className="font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400">{report.projections.recommendedRegime}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* EPF Growth Forecast Card */}
+            <div className="rounded-xl bg-slate-50/50 p-5 dark:bg-slate-950/20 border border-slate-100/20 space-y-4">
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <PiggyBank className="h-4 w-4 text-indigo-400" />
+                EPF Growth Forecast
+              </h4>
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">In 5 Years</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{formatMoney(report.projections.epfForecast5Years)}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">In 10 Years</span>
+                  <span className="font-semibold text-slate-850 dark:text-slate-200">{formatMoney(report.projections.epfForecast10Years)}</span>
+                </div>
+                <p className="text-[10px] text-slate-400 italic">Projected at 8.25% interest rate + employer match</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Tax Optimization Tips */}
+          {report.projections.taxOptimizationTips && report.projections.taxOptimizationTips.length > 0 && (
+            <div className="rounded-xl bg-indigo-50/20 border border-indigo-500/10 p-5 space-y-3">
+              <h4 className="text-sm font-bold text-indigo-400 flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                AI Tax Saving Recommendations
+              </h4>
+              <ul className="grid gap-2 sm:grid-cols-2 text-xs text-slate-300 leading-relaxed">
+                {report.projections.taxOptimizationTips.map((tip, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Discrepancies and Warnings section */}
       {(report.discrepancies.length > 0 || report.warnings.length > 0) && (

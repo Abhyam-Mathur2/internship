@@ -1,13 +1,147 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="h-full">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Payroll Auditor</title>
+    
+    <!-- External Library CDNs -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Configure Tailwind Darkmode -->
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+      }
+    </script>
+
+    <!-- Shared Tailwind Component Layer Styles -->
+    <style type="text/tailwindcss">
+      @layer components {
+        .card {
+          @apply rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950;
+        }
+
+        .btn {
+          @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60;
+        }
+
+        .btn-primary {
+          @apply btn bg-blue-600 text-white hover:bg-blue-700;
+        }
+
+        .btn-secondary {
+          @apply btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
+        }
+
+        .input {
+          @apply w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2 dark:border-slate-700 dark:bg-slate-900;
+        }
+      }
+      
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .dark {
+        color-scheme: dark;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+
+      .dark body {
+        background: #020617;
+        color: #e2e8f0;
+      }
+    </style>
   </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+  <body class="min-h-full">
+    
+    <!-- 1. Authentication Layout Wrapper -->
+    <main id="auth-layout" class="min-h-screen bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100 hidden">
+      <div class="mx-auto grid min-h-screen max-w-6xl items-center gap-10 px-6 py-10 lg:grid-cols-2">
+        <section>
+          <div class="inline-flex rounded-md bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            AI Payroll Auditor
+          </div>
+          <h1 class="mt-6 text-4xl font-bold tracking-tight sm:text-5xl">Audit salary slips before payroll errors become expensive.</h1>
+          <p class="mt-4 max-w-xl text-lg text-slate-600 dark:text-slate-400">
+            Upload payslips, extract salary components, verify statutory deductions, and receive AI-backed payroll findings in minutes.
+          </p>
+        </section>
+        <div id="auth-view"></div>
+      </div>
+    </main>
+
+    <!-- 2. Main Application Layout Wrapper -->
+    <div id="app-layout" class="min-h-screen bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100 hidden">
+      
+      <!-- Desktop Sidebar -->
+      <aside class="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 dark:border-slate-800 dark:bg-slate-950 lg:block">
+        <a href="#dashboard" class="flex items-center gap-3 text-lg font-bold">
+          <span class="grid h-9 w-9 place-items-center rounded-md bg-blue-600 text-white font-bold">AI</span>
+          Payroll Auditor
+        </a>
+        <nav class="mt-8 space-y-1">
+          <a href="#dashboard" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900">
+            <i data-lucide="bar-chart-3" class="h-4 w-4"></i> Dashboard
+          </a>
+          <a href="#upload" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900">
+            <i data-lucide="upload-cloud" class="h-4 w-4"></i> Upload
+          </a>
+          <a href="#reports" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900">
+            <i data-lucide="file-text" class="h-4 w-4"></i> Reports
+          </a>
+          <a href="#admin" class="admin-only hidden flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900">
+            <i data-lucide="shield" class="h-4 w-4"></i> Admin
+          </a>
+        </nav>
+      </aside>
+
+      <div class="lg:pl-64">
+        <!-- Sticky Header -->
+        <header class="sticky top-0 z-10 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 sm:px-6">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Welcome back</p>
+              <h2 id="header-username" class="font-semibold text-slate-800 dark:text-slate-200">User</h2>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="theme-toggle-btn" class="btn-secondary px-3" aria-label="Toggle dark mode">
+                <i data-lucide="moon" class="h-4 w-4"></i>
+              </button>
+              <button id="logout-btn" class="btn-secondary px-3">
+                <i data-lucide="log-out" class="h-4 w-4"></i>
+                <span class="hidden sm:inline">Logout</span>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Mobile Navigation Tabs -->
+          <nav class="mt-3 flex gap-2 overflow-x-auto lg:hidden">
+            <a href="#dashboard" class="btn-secondary whitespace-nowrap"><i data-lucide="bar-chart-3" class="h-4 w-4"></i> Dashboard</a>
+            <a href="#upload" class="btn-secondary whitespace-nowrap"><i data-lucide="upload-cloud" class="h-4 w-4"></i> Upload</a>
+            <a href="#reports" class="btn-secondary whitespace-nowrap"><i data-lucide="file-text" class="h-4 w-4"></i> Reports</a>
+            <a href="#admin" class="admin-only hidden btn-secondary whitespace-nowrap"><i data-lucide="shield" class="h-4 w-4"></i> Admin</a>
+          </nav>
+        </header>
+
+        <!-- Main Dynamic View Workspace -->
+        <main id="main-content" class="mx-auto max-w-7xl px-4 py-6 sm:px-6"></main>
+      </div>
+    </div>
+
+    <!-- Application Script -->
+    <script type="module" src="/app.js"></script>
   </body>
 </html>
-

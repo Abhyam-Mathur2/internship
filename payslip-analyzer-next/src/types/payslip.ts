@@ -12,4 +12,14 @@ export interface PayslipAnalysis {
   warnings: string[];
   verdict: 'VALID' | 'INVALID' | 'SUSPICIOUS';
   verdictReason: string;
+  projections?: {
+    annualGrossSalary: number;
+    annualNetSalary: number;
+    newRegimeTax: number;
+    oldRegimeTax: number;
+    recommendedRegime: string;
+    taxOptimizationTips: string[];
+    epfForecast5Years: number;
+    epfForecast10Years: number;
+  };
 }

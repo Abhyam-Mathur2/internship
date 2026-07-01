@@ -35,6 +35,7 @@ When auditing, you MUST evaluate these critical areas:
    - Verify: Gross Salary = Basic + HRA + Allowances + Bonus + Overtime.
    - Verify: Net Salary = Gross Salary - Total Deductions.
 4. ESI & TDS VALIDATION: Ensure ESI contributions are only expected if gross salary is <= ₹21,000. Verify TDS ranges look reasonable.
+5. PROJECTIONS & TAX ADVISORY: Calculate and project annual salaries, Indian tax slabs under both regimes (Old vs New), suggest optimization tips, and project 5/10 year EPF accumulations (assume 8.25% interest rate and matching employer contribution).
 
 Return ONLY a valid JSON object matching the following structure:
 {
@@ -43,7 +44,17 @@ Return ONLY a valid JSON object matching the following structure:
   "anomalies": ["List of calculations/statutory mismatch statements."],
   "issues": ["List of compliance, missing info, or formatting issues."],
   "recommendations": ["Actionable compliance recommendations."],
-  "risk_indicators": ["Key risk identifiers found."]
+  "risk_indicators": ["Key risk identifiers found."],
+  "projections": {
+    "annual_gross_salary": number,
+    "annual_net_salary": number,
+    "new_regime_tax": number,
+    "old_regime_tax": number,
+    "recommended_regime": "New Tax Regime" or "Old Tax Regime",
+    "tax_optimization_tips": ["List of tax saving tips."],
+    "epf_forecast_5_years": number,
+    "epf_forecast_10_years": number
+  }
 }',
                         ],
                         [

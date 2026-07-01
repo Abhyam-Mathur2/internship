@@ -1,0 +1,2 @@
+# Use PHP 8.3 Alt
+AddHandler application/x-httpd-alt-php83___lsphp .php

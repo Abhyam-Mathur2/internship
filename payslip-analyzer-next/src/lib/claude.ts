@@ -6,7 +6,8 @@ export async function analyzePayslipWithClaude(base64Image: string): Promise<Pay
     throw new Error('GROQ_API_KEY is not defined in environment variables.');
   }
   
-  const systemPrompt = `You are a payroll verification expert. You analyze payslip documents and verify their mathematical accuracy and completeness. 
+  const systemPrompt = `You are a payroll verification expert. You analyze payslip documents and verify their mathematical accuracy and completeness.
+You must also project annual salaries, Indian tax slabs under both regimes (Old vs New), suggest optimization tips, and project 5/10 year EPF accumulations (assume 8.25% interest rate and matching employer contribution).
 You must respond in valid JSON matching this schema:
 {
   "isValid": boolean,
@@ -21,7 +22,17 @@ You must respond in valid JSON matching this schema:
   "discrepancies": string[],
   "warnings": string[],
   "verdict": "VALID" | "INVALID" | "SUSPICIOUS",
-  "verdictReason": string
+  "verdictReason": string,
+  "projections": {
+    "annualGrossSalary": number,
+    "annualNetSalary": number,
+    "newRegimeTax": number,
+    "oldRegimeTax": number,
+    "recommendedRegime": string,
+    "taxOptimizationTips": string[],
+    "epfForecast5Years": number,
+    "epfForecast10Years": number;
+  }
 }`;
   
   const userPrompt = `Analyze this payslip image carefully. Extract all financial figures. Verify:
