@@ -10,11 +10,20 @@ let activeCharts = [];
 // Helper to make API requests with Authorization interceptor
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
+  
+  // Create headers. If body is FormData, do not set Content-Type header.
   const headers = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(currentToken ? { 'Authorization': `Bearer ${currentToken}` } : {}),
     ...(options.headers || {})
   };
+
+  // Clean undefined headers to prevent browsers from sending literal "undefined"
+  Object.keys(headers).forEach(key => {
+    if (headers[key] === undefined) {
+      delete headers[key];
+    }
+  });
 
   try {
     const response = await fetch(url, {
@@ -539,11 +548,7 @@ function renderUpload(container) {
 
       const uploadResponse = await apiRequest('/upload-payslip', {
         method: 'POST',
-        body: form,
-        headers: {
-          // fetch will automatically generate boundary headers when sending FormData
-          'Content-Type': undefined 
-        }
+        body: form
       });
 
       statusEl.textContent = 'Extracting payroll fields...';
