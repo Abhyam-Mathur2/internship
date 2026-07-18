@@ -1,0 +1,28 @@
+# Dependency directories
+node_modules/
+backend/vendor/
+frontend/node_modules/
+frontend/dist/
+
+# Environment files
+.env
+.env.*
+backend/.env
+frontend/.env
+!*.example
+
+# Laravel files
+backend/storage/app/private/*
+backend/storage/app/public/*
+backend/public/storage
+backend/bootstrap/cache/*.php
+backend/storage/logs/*.log
+backend/storage/framework/views/*.php
+backend/storage/framework/cache/data/*
+backend/storage/framework/sessions/*
+
+# OS and IDE files
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

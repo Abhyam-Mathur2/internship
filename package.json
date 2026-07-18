@@ -1,0 +1,24 @@
+{
+  "name": "inoventry",
+  "version": "1.0.0",
+  "description": "Production-ready MVP SaaS for uploading payslips, extracting payroll data, verifying salary calculations, detecting anomalies, and generating AI audit reports with Groq.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Abhyam-Mathur2/internship.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Abhyam-Mathur2/internship/issues"
+  },
+  "homepage": "https://github.com/Abhyam-Mathur2/internship#readme",
+  "dependencies": {
+    "basic-ftp": "^6.0.1",
+    "chokidar": "^5.0.0"
+  }
+}
