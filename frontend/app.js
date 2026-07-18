@@ -14,6 +14,22 @@ function clearSession() {
   currentToken = '';
 }
 
+function formatApiError(responseBody, status) {
+  if (responseBody?.message !== 'Validation failed.' || !responseBody?.details) {
+    return responseBody?.message || `Request failed with status ${status}`;
+  }
+
+  const validationMessages = Object.entries(responseBody.details)
+    .flatMap(([, messages]) => Array.isArray(messages) ? messages : [messages])
+    .filter(Boolean);
+
+  if (validationMessages.length === 0) {
+    return responseBody.message;
+  }
+
+  return `Validation failed: ${validationMessages[0]}`;
+}
+
 // Helper to make API requests with Authorization interceptor
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
@@ -42,16 +58,16 @@ async function apiRequest(endpoint, options = {}) {
 
     if (response.status === 401) {
       if (endpoint === '/login' || endpoint === '/register') {
-        throw new Error(responseBody.message || 'Unauthorized session. Please login again.');
+        throw new Error(formatApiError(responseBody, response.status));
       }
 
       clearSession();
       window.location.hash = '#login';
-      throw new Error(responseBody.message || 'Unauthorized session. Please login again.');
+      throw new Error(formatApiError(responseBody, response.status));
     }
 
     if (!response.ok) {
-      throw new Error(responseBody.message || `Request failed with status ${response.status}`);
+      throw new Error(formatApiError(responseBody, response.status));
     }
 
     return responseBody;
