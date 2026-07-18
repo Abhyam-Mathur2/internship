@@ -1,11 +1,18 @@
 // Vanilla JS App Core for AI Payroll Auditor
 
-const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://localhost:8000/api';
+const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || `${window.location.origin}/api`;
 
 // State Management
 let currentUser = JSON.parse(localStorage.getItem('payroll_user') || 'null');
 let currentToken = localStorage.getItem('payroll_token') || '';
 let activeCharts = [];
+
+function clearSession() {
+  localStorage.removeItem('payroll_token');
+  localStorage.removeItem('payroll_user');
+  currentUser = null;
+  currentToken = '';
+}
 
 // Helper to make API requests with Authorization interceptor
 async function apiRequest(endpoint, options = {}) {
@@ -31,21 +38,23 @@ async function apiRequest(endpoint, options = {}) {
       headers
     });
 
+    const responseBody = await response.json().catch(() => ({}));
+
     if (response.status === 401) {
-      localStorage.removeItem('payroll_token');
-      localStorage.removeItem('payroll_user');
-      currentUser = null;
-      currentToken = '';
+      if (endpoint === '/login' || endpoint === '/register') {
+        throw new Error(responseBody.message || 'Unauthorized session. Please login again.');
+      }
+
+      clearSession();
       window.location.hash = '#login';
-      throw new Error('Unauthorized session. Please login again.');
+      throw new Error(responseBody.message || 'Unauthorized session. Please login again.');
     }
 
     if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.message || `Request failed with status ${response.status}`);
+      throw new Error(responseBody.message || `Request failed with status ${response.status}`);
     }
 
-    return await response.json();
+    return responseBody;
   } catch (error) {
     console.error(`API Error on ${endpoint}:`, error);
     throw error;
@@ -298,10 +307,7 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   } catch (e) {
     console.error(e);
   } finally {
-    localStorage.removeItem('payroll_token');
-    localStorage.removeItem('payroll_user');
-    currentUser = null;
-    currentToken = '';
+    clearSession();
     window.location.hash = '#login';
   }
 });
