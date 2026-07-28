@@ -29,12 +29,21 @@ class OcrService
             }
         }
 
-        // 3. Fall back to other OCR engines if Groq is not available or failed
+        // 3. Fall back to a configured OCR engine if Groq is not available or failed.
+        // "groq" is an explicit valid driver: it prevents accidental demo/mock extraction.
         if (trim($rawText) === '') {
-            $driver = config('payroll.ocr_driver');
+            $driver = strtolower((string) config('payroll.ocr_driver'));
             if ($driver === 'mock') {
                 throw new \RuntimeException(
                     'OCR extraction failed. OCR_DRIVER=mock would return demo payslip data, so real uploads cannot be compared accurately. Configure Groq, Tesseract, or OCR.space OCR.'
+                );
+            }
+
+            if ($driver === 'groq') {
+                throw new \RuntimeException(
+                    $apiKey
+                        ? 'Groq could not read this payslip. Please upload a clear PDF, JPG, or PNG under 4 MB.'
+                        : 'Groq OCR is selected but GROQ_API_KEY is not configured.'
                 );
             }
 

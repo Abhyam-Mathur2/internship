@@ -25,7 +25,9 @@ cp frontend/.env.example frontend/.env
 APP_KEY=
 JWT_SECRET=
 GROQ_API_KEY=
-OCR_DRIVER=mock
+GROQ_MODEL=qwen/qwen3.6-27b
+GROQ_VISION_MODEL=qwen/qwen3.6-27b
+OCR_DRIVER=groq
 ```
 
 3. Start services:
@@ -76,7 +78,8 @@ npm run dev
 
 ## OCR Modes
 
-- `OCR_DRIVER=mock`: deterministic sample extraction for development
+- `OCR_DRIVER=groq`: uses `GROQ_API_KEY` and the configured vision model (recommended)
+- `OCR_DRIVER=mock`: deterministic sample extraction for development only
 - `OCR_DRIVER=tesseract`: requires `tesseract` binary installed
 - `OCR_DRIVER=ocrspace`: requires `OCR_SPACE_API_KEY`
 
