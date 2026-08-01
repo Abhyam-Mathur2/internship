@@ -24,7 +24,7 @@ class PayslipController extends Controller
 
         $employee = $this->employeeFor($request);
         $file = $data['file'];
-        $path = $file->store('payslips/'.$employee->id);
+        $path = $file->store('payslips/'.$employee->id, 'local');
 
         $payslip = Payslip::query()->create([
             'employee_id' => $employee->id,
@@ -45,7 +45,30 @@ class PayslipController extends Controller
         ]);
 
         $payslip = $this->ownedPayslip($request, (int) $data['payslip_id']);
-        $result = $ocr->extract(Storage::path($payslip->file_path), $payslip->mime_type);
+        
+        try {
+            $disk = Storage::disk('local');
+            if (!$disk->exists($payslip->file_path)) {
+                return response()->json(['message' => 'Uploaded file is missing or expired. Please upload it again.'], 404);
+            }
+            
+            $result = $ocr->extract($disk->path($payslip->file_path), $payslip->mime_type);
+
+            if (empty($result['raw_text']) || empty($result['data']) || !is_array($result['data'])) {
+                return response()->json(['message' => 'Failed to parse structured payroll data from the document.'], 422);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('OCR Extraction failed', [
+                'payslip_id' => $payslip->id,
+                'file_path' => $payslip->file_path,
+                'mime_type' => $payslip->mime_type,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            $msg = $e instanceof \RuntimeException ? $e->getMessage() : 'Unable to extract text from the uploaded payslip.';
+            return response()->json(['message' => $msg], 500);
+        }
 
         $payslip->update([
             'ocr_text' => $result['raw_text'],
@@ -68,7 +91,29 @@ class PayslipController extends Controller
         $payslip = $this->ownedPayslip($request, (int) $data['payslip_id']);
         if (empty($payslip->extracted_data)) {
             $ocr = app(OcrService::class);
-            $result = $ocr->extract(Storage::path($payslip->file_path), $payslip->mime_type);
+            try {
+                $disk = Storage::disk('local');
+                if (!$disk->exists($payslip->file_path)) {
+                    return response()->json(['message' => 'Uploaded file is missing or expired. Please upload it again.'], 404);
+                }
+                
+                $result = $ocr->extract($disk->path($payslip->file_path), $payslip->mime_type);
+                
+                if (empty($result['raw_text']) || empty($result['data']) || !is_array($result['data'])) {
+                    return response()->json(['message' => 'Failed to parse structured payroll data from the document.'], 422);
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('OCR Extraction failed during analysis', [
+                    'payslip_id' => $payslip->id,
+                    'file_path' => $payslip->file_path,
+                    'mime_type' => $payslip->mime_type,
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine()
+                ]);
+                $msg = $e instanceof \RuntimeException ? $e->getMessage() : 'Unable to extract text from the uploaded payslip.';
+                return response()->json(['message' => $msg], 500);
+            }
             $payslip->update([
                 'ocr_text' => $result['raw_text'],
                 'extracted_data' => $result['data'],
