@@ -21,10 +21,10 @@ class OcrService
         }
 
         // 2. If Groq API is available, use it for intelligent parsing
-        $apiKey = config('payroll.groq_api_key') ?: env('GROQ_API_KEY');
+        $apiKey = config('payroll.groq_api_key');
         if ($apiKey) {
             $groqResult = $this->extractWithGroq($path, $mimeType, $rawText);
-            if (!empty($groqResult) && !empty($groqResult['data']) && (float)($groqResult['data']['gross_salary'] ?? 0) > 0) {
+            if (!empty($groqResult) && !empty($groqResult['data']) && $this->hasUsablePayrollData($groqResult['data'])) {
                 return $groqResult;
             }
         }
@@ -100,11 +100,11 @@ class OcrService
         }
 
         $rawText = '';
-        $apiKey = config('payroll.groq_api_key') ?: env('GROQ_API_KEY');
+        $apiKey = config('payroll.groq_api_key');
         if ($apiKey) {
             try {
                 $base64 = base64_encode(file_get_contents($path));
-                $response = Http::withoutVerifying()->withToken($apiKey)->acceptJson()->asJson()->timeout(30)
+                $response = Http::withToken($apiKey)->acceptJson()->asJson()->timeout(30)
                     ->post('https://api.groq.com/openai/v1/chat/completions', [
                         'model' => config('payroll.groq_vision_model'), 'temperature' => 0.1,
                         'response_format' => ['type' => 'json_object'],
@@ -118,14 +118,31 @@ class OcrService
                             ],
                         ]],
                     ]);
-                if ($response->successful()) {
-                    $data = json_decode(data_get($response->json(), 'choices.0.message.content', '{}'), true);
-                    if (is_array($data)) {
-                        return ['raw_text' => 'Extracted via offer-letter image analysis.', 'data' => $this->sanitizeOfferData($data)];
-                    }
+                
+                if (!$response->successful()) {
+                    $this->handleGroqError($response, $mimeType, filesize($path), config('payroll.groq_vision_model'));
                 }
+
+                $content = data_get($response->json(), 'choices.0.message.content', '{}');
+                $data = json_decode($content, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    \Illuminate\Support\Facades\Log::error('Groq Vision JSON Decode Failed', [
+                        'json_error' => json_last_error_msg(),
+                        'response_preview' => substr($content, 0, 500)
+                    ]);
+                } elseif (is_array($data)) {
+                    return ['raw_text' => 'Extracted via offer-letter image analysis.', 'data' => $this->sanitizeOfferData($data)];
+                }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning('Offer extraction failed: '.$e->getMessage());
+                \Illuminate\Support\Facades\Log::error('Groq Vision Exception', [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'model' => config('payroll.groq_vision_model'),
+                    'mime_type' => $mimeType,
+                ]);
             }
         }
 
@@ -176,15 +193,14 @@ class OcrService
 
     private function extractWithGroq(string $path, string $mimeType, string $existingRawText): array
     {
-        $apiKey = config('payroll.groq_api_key') ?: env('GROQ_API_KEY');
+        $apiKey = config('payroll.groq_api_key');
         if (!$apiKey) {
             return [];
         }
 
         if (trim($existingRawText) !== '') {
             try {
-                $response = Http::withoutVerifying()
-                    ->withToken($apiKey)
+                $response = Http::withToken($apiKey)
                     ->acceptJson()
                     ->asJson()
                     ->timeout(30)
@@ -204,26 +220,41 @@ class OcrService
                         ],
                     ]);
 
-                if ($response->successful()) {
-                    $content = data_get($response->json(), 'choices.0.message.content', '{}');
-                    $data = json_decode($content, true);
-                    if (is_array($data) && (float)($data['gross_salary'] ?? 0) > 0) {
-                        return [
-                            'raw_text' => $existingRawText,
-                            'data' => $this->sanitizeExtractedData($data),
-                        ];
-                    }
+                if (!$response->successful()) {
+                    $this->handleGroqError($response, $mimeType, filesize($path), 'llama-3.3-70b-versatile');
                 }
+
+                $content = data_get($response->json(), 'choices.0.message.content', '{}');
+                $data = json_decode($content, true);
+                
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    \Illuminate\Support\Facades\Log::error('Groq Vision JSON Decode Failed', [
+                        'json_error' => json_last_error_msg(),
+                        'response_preview' => substr($content, 0, 500)
+                    ]);
+                } elseif (is_array($data) && $this->hasUsablePayrollData($data)) {
+                    return [
+                        'raw_text' => $existingRawText,
+                        'data' => $this->sanitizeExtractedData($data),
+                    ];
+                }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('Groq Text Parse Fallback Failed: ' . $e->getMessage());
+                \Illuminate\Support\Facades\Log::error('Groq Vision Exception', [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'model' => 'llama-3.3-70b-versatile',
+                    'mime_type' => $mimeType,
+                ]);
             }
         }
 
         if (str_starts_with($mimeType, 'image/')) {
             try {
                 $base64 = base64_encode(file_get_contents($path));
-                $response = Http::withoutVerifying()
-                    ->withToken($apiKey)
+                $response = Http::withToken($apiKey)
                     ->acceptJson()
                     ->asJson()
                     ->timeout(30)
@@ -254,18 +285,33 @@ class OcrService
                         ],
                     ]);
 
-                if ($response->successful()) {
-                    $content = data_get($response->json(), 'choices.0.message.content', '{}');
-                    $data = json_decode($content, true);
-                    if (is_array($data)) {
-                        return [
-                            'raw_text' => 'Extracted via Groq Vision API.',
-                            'data' => $this->sanitizeExtractedData($data),
-                        ];
-                    }
+                if (!$response->successful()) {
+                    $this->handleGroqError($response, $mimeType, filesize($path), config('payroll.groq_vision_model'));
                 }
+
+                $content = data_get($response->json(), 'choices.0.message.content', '{}');
+                $data = json_decode($content, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    \Illuminate\Support\Facades\Log::error('Groq Vision JSON Decode Failed', [
+                        'json_error' => json_last_error_msg(),
+                        'response_preview' => substr($content, 0, 500)
+                    ]);
+                } elseif (is_array($data)) {
+                    return [
+                        'raw_text' => 'Extracted via Groq Vision API.',
+                        'data' => $this->sanitizeExtractedData($data),
+                    ];
+                }
+            } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+                throw $e;
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('Groq Vision Fallback Failed: ' . $e->getMessage());
+                \Illuminate\Support\Facades\Log::error('Groq Vision Exception', [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'model' => config('payroll.groq_vision_model'),
+                    'mime_type' => $mimeType,
+                ]);
             }
         }
 
@@ -285,7 +331,7 @@ class OcrService
             if (in_array($field, ['employee_name', 'employee_id', 'month'])) {
                 $sanitized[$field] = isset($data[$field]) ? (string)$data[$field] : null;
             } else {
-                $sanitized[$field] = isset($data[$field]) ? (float)$data[$field] : 0.0;
+                $sanitized[$field] = $this->normalizeMoney($data[$field] ?? 0);
             }
         }
         return $sanitized;
@@ -352,7 +398,7 @@ class OcrService
         $numeric = ['ctc', 'cash_in_hand', 'employee_pf', 'employer_pf', 'bonus', 'stock_value', 'insurance_value', 'joining_bonus'];
         $result = ['company_name' => isset($data['company_name']) ? (string) $data['company_name'] : null, 'designation' => isset($data['designation']) ? (string) $data['designation'] : null];
         foreach ($numeric as $field) {
-            $result[$field] = max(0, (float) ($data[$field] ?? 0));
+            $result[$field] = max(0, $this->normalizeMoney($data[$field] ?? 0));
         }
         return $result;
     }
@@ -390,6 +436,68 @@ class OcrService
     private function matchText(string $text, string $pattern): ?string
     {
         return preg_match($pattern, $text, $matches) ? $matches[1] : null;
+    }
+
+    private function hasUsablePayrollData(array $data): bool
+    {
+        $basic = $this->normalizeMoney($data['basic_salary'] ?? 0);
+        $gross = $this->normalizeMoney($data['gross_salary'] ?? 0);
+        $net = $this->normalizeMoney($data['net_salary'] ?? 0);
+        
+        $fieldsFound = 0;
+        if ($basic > 0) $fieldsFound++;
+        if ($gross > 0) $fieldsFound++;
+        if ($net > 0) $fieldsFound++;
+        if (!empty($data['employee_name'])) $fieldsFound++;
+        if (!empty($data['month'])) $fieldsFound++;
+        if ($this->normalizeMoney($data['pf'] ?? 0) > 0) $fieldsFound++;
+        if ($this->normalizeMoney($data['hra'] ?? 0) > 0) $fieldsFound++;
+        
+        return $fieldsFound >= 2;
+    }
+
+    private function normalizeMoney($value): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+        
+        if (is_numeric($value)) {
+            return (float)$value;
+        }
+
+        $clean = preg_replace('/[^\d.]/', '', $value);
+        return (float)($clean ?: 0.0);
+    }
+
+    private function handleGroqError(\Illuminate\Http\Client\Response $response, string $mimeType, int $fileSize, string $model): void
+    {
+        $status = $response->status();
+        \Illuminate\Support\Facades\Log::error('Groq Vision API Error', [
+            'status' => $status,
+            'body' => $response->body(),
+            'model' => $model,
+            'mime_type' => $mimeType,
+            'file_size' => $fileSize,
+        ]);
+
+        $msg = 'Unable to extract payroll information.';
+        
+        if ($status === 400) {
+            abort(422, 'The uploaded image format or dimensions are unsupported by the AI vision model.');
+        } elseif ($status === 401) {
+            abort(500, 'Groq API Key is missing or invalid.');
+        } elseif ($status === 404) {
+            abort(500, 'The configured Groq model is currently unavailable.');
+        } elseif ($status === 413) {
+            abort(413, 'The uploaded image is too large for the Groq API. Please resize and try again.');
+        } elseif ($status === 429) {
+            abort(429, 'Groq API rate limit exceeded. Please try again later.');
+        } elseif ($status >= 500) {
+            abort(503, 'Groq service is temporarily unavailable. Please try again later.');
+        }
+
+        abort(500, $msg);
     }
 
     private function mockText(): string

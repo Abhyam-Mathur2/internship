@@ -753,7 +753,7 @@ async function renderUpload(container) {
             <div class="p-6">
               <i data-lucide="upload-cloud" class="mx-auto h-10 w-10 text-blue-600"></i>
               <h3 id="filename" class="mt-3 font-semibold">Drop payslip here</h3>
-              <p class="text-sm text-slate-500">PDF, JPG, or PNG up to 5 MB</p>
+              <p class="text-sm text-slate-500">PDF, JPG, or PNG up to 4 MB</p>
             </div>
           </div>
           <button id="run-audit-btn" class="btn-primary w-full" type="button"><i data-lucide="sparkles" class="h-4 w-4"></i> Check salary</button>

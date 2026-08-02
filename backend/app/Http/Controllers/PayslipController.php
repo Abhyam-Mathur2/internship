@@ -57,6 +57,8 @@ class PayslipController extends Controller
             if (empty($result['raw_text']) || empty($result['data']) || !is_array($result['data'])) {
                 return response()->json(['message' => 'Failed to parse structured payroll data from the document.'], 422);
             }
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->getStatusCode());
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('OCR Extraction failed', [
                 'payslip_id' => $payslip->id,
@@ -102,6 +104,8 @@ class PayslipController extends Controller
                 if (empty($result['raw_text']) || empty($result['data']) || !is_array($result['data'])) {
                     return response()->json(['message' => 'Failed to parse structured payroll data from the document.'], 422);
                 }
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                return response()->json(['message' => $e->getMessage()], $e->getStatusCode());
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::error('OCR Extraction failed during analysis', [
                     'payslip_id' => $payslip->id,

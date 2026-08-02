@@ -13,12 +13,17 @@ class GroqService
         }
 
         try {
-            $response = Http::withoutVerifying()
-                ->withToken(config('payroll.groq_api_key'))
+            $response = Http::withToken(config('payroll.groq_api_key'))
                 ->acceptJson()
                 ->asJson()
                 ->timeout(30)
-                ->retry(2, 250)
+                ->retry(2, 250, function ($exception, $request) {
+                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
+                        $status = $exception->response->status();
+                        return $status >= 500 || $status === 429;
+                    }
+                    return true; // retry on connection timeouts etc
+                })
                 ->post('https://api.groq.com/openai/v1/chat/completions', [
                     'model' => config('payroll.groq_model', 'llama-3.3-70b-versatile'),
                     'temperature' => 0.1,
@@ -107,6 +112,17 @@ Return ONLY a valid JSON object matching the following structure:
                 ? ['Keep a copy of this audited payslip for salary records.']
                 : ['Ask payroll to clarify each mismatch before accepting the payslip as final.'],
             'risk_indicators' => empty($warnings) ? ['No major risk indicators found.'] : $warnings,
+            'comparison_findings' => [],
+            'projections' => [
+                'annual_gross_salary' => 0,
+                'annual_net_salary' => 0,
+                'new_regime_tax' => 0,
+                'old_regime_tax' => 0,
+                'recommended_regime' => 'New Tax Regime',
+                'tax_optimization_tips' => [],
+                'epf_forecast_5_years' => 0,
+                'epf_forecast_10_years' => 0,
+            ],
         ];
     }
 }
